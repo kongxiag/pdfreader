@@ -74,6 +74,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="显式允许远程 HTTP API（不加密，会暴露 Key 和文献内容；默认拒绝）")
     p.add_argument("--test-config", action="store_true", default=False,
                    help="发送最小请求测试翻译/视觉 API 配置，不处理 PDF")
+    p.add_argument("--json-out", default=None,
+                   help="将机器可读结果(JSON)写入指定文件，供 DSH 插件等程序化调用解析")
     p.add_argument("--temperature", type=float, default=1.0, help="翻译温度（默认 1.0）")
     p.add_argument("--version", action="version", version=f"pdfreader {__version__}")
     return p
@@ -273,6 +275,24 @@ def _test_api_config(args: argparse.Namespace) -> int:
     else:
         print("视觉 API: 未配置，已跳过")
     return 1 if failures else 0
+
+
+def _write_json_out(json_path: str, failures: list[tuple[str, str]], summary: list[dict]) -> None:
+    """把汇总结果写入机器可读 JSON 文件（供 DSH 插件等程序化调用方解析）。"""
+    import json as _json
+
+    result = {
+        "ok": not failures,
+        "documents": summary,
+        "failures": [{"pdf": pdf, "error": error} for pdf, error in failures],
+    }
+    try:
+        Path(json_path).write_text(
+            _json.dumps(result, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError as exc:  # noqa: BLE001
+        print(f"⚠️ 写入 JSON 结果失败: {exc}", file=sys.stderr)
 
 
 def process_one(
@@ -497,6 +517,8 @@ def main(argv: list[str] | None = None) -> int:
     for pdf, error in failures:
         print(f"  {pdf}: 失败 / {error}")
     print(f"\n完成: {len(summary)} 篇成功，{len(failures)} 篇失败。")
+    if args.json_out:
+        _write_json_out(args.json_out, failures, summary)
     return 1 if failures else 0
 
 

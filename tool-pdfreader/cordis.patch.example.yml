@@ -1,0 +1,24 @@
+# 把 dsh-tool-pdfreader 注册进 DSH profile 的 cordis.patch.yml（「插入列表」条目）。
+#
+# 步骤：
+#   1) 安装包到 profile：dsh plugin --profile <name> add <本目录路径>
+#      （等价于在该 profile 的 package.json 里加依赖并 pnpm add 本地目录）
+#   2) 把下面这段并入 <DSH_HOME>/profiles/<name>/cordis.patch.yml
+#   3) 重启 DSH
+#
+# 说明：模型可直接调用 pdfreader 工具；翻译/视觉 API Key 一律从 config.json 读取，
+#       不进入工具参数。
+
+- insert:
+    - id: tool-pdfreader
+      name: 'dsh-tool-pdfreader'
+      config:
+        # python -m pdfreader 的运行目录（绝对路径）
+        cwd: D:\阅读文献\pdf-reader
+        # Python 可执行文件：裸名走 PATH，或填绝对路径（如 C:\Python314\python.exe）
+        pythonBin: python
+        # 翻译/视觉的 config.json 绝对路径；留空则不传 --config（可由模型用 config 参数指定）
+        configPath: D:\阅读文献\.agents\skills\pdfreader\config.json
+        defaultFormats: md,zh,html
+        outDir: output
+        timeoutMs: 600000

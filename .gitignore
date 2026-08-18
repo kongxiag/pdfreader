@@ -14,7 +14,7 @@ env/
 .env
 .env.*
 config.json
-skill/pdfreader/config.json
+.agents/skills/pdfreader/config.json
 
 # Generated literature outputs
 output/
@@ -23,6 +23,9 @@ output/
 tests/.tmp/
 tests/.tmp-*/
 tests/smoke-output/
+
+# DSH tool plugin (Node)
+tool-pdfreader/node_modules/
 
 # Editors and OS
 .vscode/

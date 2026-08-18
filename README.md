@@ -170,11 +170,41 @@ pdf-reader/
 └── output/             # 生成的报告与图片（--out-dir 可改）
 ```
 
+## DSH 集成（skill + 工具插件）
+
+本仓库同时提供两种 DeepSeek Harness 扩展，两种都会**自动加载**：
+
+| 形态 | 位置 | 说明 |
+|---|---|---|
+| **Skill（技能）** | `.agents/skills/pdfreader/SKILL.md` | DSH 启动时自动扫描发现，零安装；教模型按流程调用 CLI |
+| **工具插件** | `tool-pdfreader/` | 模型直接调用 `pdfreader` 工具；需 `dsh plugin add` + 注册（见 `tool-pdfreader/README.md`） |
+
+### Skill：自动发现，零安装
+
+skill 放在 DSH 标准位置 `.agents/skills/pdfreader/SKILL.md`（项目根 = 含 `.git` 的最近祖先）。
+在 `pdf-reader` 目录或其下打开 DSH 会话时，`skill-filesystem` 会自动发现并把它列进可用技能。
+
+若你在**上一级目录**（如 `D:\阅读文献`）打开会话，项目根回退为该目录，需要用同步脚本把
+skill 复制到那里的 `.agents/skills/`：
+
+```powershell
+.\scripts\install-skill.ps1              # 同步到仓库上一级目录的 .agents\skills\pdfreader
+```
+
+### 工具插件：一次注册，自动挂载
+
+1. 安装：`dsh plugin --profile web add tool-pdfreader`
+2. 注册：把 `tool-pdfreader/cordis.patch.example.yml` 的内容并入 profile 的 `cordis.patch.yml`
+3. 重启 DSH 后，模型即可直接调用 `pdfreader` 工具。
+
+详见 [`tool-pdfreader/README.md`](tool-pdfreader/README.md)。
+
 ## 后续可扩展
 
 - 扫描件 OCR 模型本地缓存（`--model-directory`）
 - AI 摘要 / 要点提取 / 关键术语表自动生成
 - 图片理解已支持（`--vision`）：可接入任意 OpenAI 兼容视觉模型；本地
   Ollama + Qwen2.5-VL 亦可（填本地 base_url）
-- 与 DeepSeek Harness 集成：把 `.extracted.md` 直接作为 Harness 工作区输入
+- DeepSeek Harness 集成：已提供 skill（`.agents/skills/pdfreader/`）与工具插件
+  （`tool-pdfreader/`），见上文「DSH 集成」
 - 公式/图表（pdf-inspector 提取的 Markdown 保留结构，可后续解析图表）
