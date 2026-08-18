@@ -31,13 +31,16 @@ jobs:
         run: python -m compileall -q pdfreader tests
 
       - name: Scan tracked files for likely secrets
-        shell: pwsh
+        shell: bash
         run: |
-          $matches = git grep -n -E 'sk-[A-Za-z0-9]{20,}|BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY' -- ':!tests/*'
-          if ($LASTEXITCODE -eq 0) {
-            $matches
-            throw 'Potential secret detected in tracked files.'
-          }
-          if ($LASTEXITCODE -ne 1) {
-            throw "git grep failed with exit code $LASTEXITCODE"
-          }
+          if git grep -n -E 'sk-[A-Za-z0-9]{20,}|BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY' -- ':!tests/*'; then
+            echo 'Potential secret detected in tracked files.' >&2
+            exit 1
+          else
+            status=$?
+            if [ "$status" -ne 1 ]; then
+              echo "git grep failed with exit code $status" >&2
+              exit "$status"
+            fi
+          fi
+          echo 'No likely secrets found.'
