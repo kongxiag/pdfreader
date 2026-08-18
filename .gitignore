@@ -27,6 +27,11 @@ tests/smoke-output/
 # DSH tool plugin (Node)
 tool-pdfreader/node_modules/
 
+# Hidden from public repo (kept locally only)
+CHANGELOG.md
+WEB_UI_PLAN.md
+scripts/
+
 # Editors and OS
 .vscode/
 .idea/

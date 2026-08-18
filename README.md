@@ -24,9 +24,6 @@ PDF 文献 ─► pdf-inspector 分类 ─► 文本型:直接提取 Markdown / 
 # 需要 Python 3.10+，建议 3.12/3.13（3.14 亦可）
 cd pdf-reader
 pip install -r requirements.txt
-
-# 将仓库中的 skill 安装/同步到工作区（保留已有 config.json）
-.\scripts\install-skill.ps1
 ```
 
 ## 快速开始
@@ -184,12 +181,9 @@ pdf-reader/
 skill 放在 DSH 标准位置 `.agents/skills/pdfreader/SKILL.md`（项目根 = 含 `.git` 的最近祖先）。
 在 `pdf-reader` 目录或其下打开 DSH 会话时，`skill-filesystem` 会自动发现并把它列进可用技能。
 
-若你在**上一级目录**（如 `D:\阅读文献`）打开会话，项目根回退为该目录，需要用同步脚本把
-skill 复制到那里的 `.agents/skills/`：
-
-```powershell
-.\scripts\install-skill.ps1              # 同步到仓库上一级目录的 .agents\skills\pdfreader
-```
+> 若你在**上一级目录**（而非 `pdf-reader` 仓库目录）打开会话，DSH 的项目根会回退为该目录；
+> 此时可把 `.agents/skills/pdfreader` 手动复制到该目录的 `.agents/skills/` 下（或直接把会话
+> 开在仓库目录内）。
 
 ### 工具插件：一次注册，自动挂载
 
