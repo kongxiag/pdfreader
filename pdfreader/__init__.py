@@ -6,7 +6,7 @@
 补充图片提取与视觉理解，提升 AI 对文献的阅读效率。
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .convert import classify_pdf, convert_pdf_to_markdown, PdfConversionResult
 from .chunk import chunk_markdown, estimate_tokens

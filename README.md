@@ -24,17 +24,19 @@ PDF 文献 ─► pdf-inspector 分类 ─► 文本型:直接提取 Markdown / 
 # 需要 Python 3.10+，建议 3.12/3.13（3.14 亦可）
 cd pdf-reader
 pip install -r requirements.txt
+
+# 将仓库中的 skill 安装/同步到工作区（保留已有 config.json）
+.\scripts\install-skill.ps1
 ```
 
 ## 快速开始
 
 ```bash
-# 1) 配置翻译 LLM 的 API Key（翻译必需；默认读 LLM_API_KEY，兼容 DEEPSEEK_API_KEY / OPENAI_API_KEY）
-set LLM_API_KEY=sk-xxxx                # Windows CMD
-$env:LLM_API_KEY = "sk-xxxx"           # PowerShell
+# 1) 单篇：转换 + 翻译 + 中英对照报告（推荐将 API 配置写入本地 config.json）
+python -m pdfreader ..\paper.pdf --config .\config.json
 
-# 2) 单篇：转换 + 翻译 + 中英对照报告（默认模型 deepseek-chat）
-python -m pdfreader ..\paper.pdf
+# 2) 处理前发送最小请求验证翻译/视觉配置
+python -m pdfreader --test-config --config .\config.json
 
 # 3) 换用其他模型/服务（OpenAI 兼容接口，任意 base_url）
 python -m pdfreader ..\paper.pdf --model gpt-4o --base-url "https://api.openai.com/v1"
@@ -77,10 +79,13 @@ CLI 会拒绝未知字段、空值、错误类型或非法 URL，并返回非零
 | `-o, --out-dir` | 输出目录（默认 `output/`） |
 | `--formats` | 输出格式：`md`(中英对照)、`zh`(纯中文)、`html`(网页)，逗号分隔 |
 | `--no-translate` | 只转换提取，跳过翻译 |
-| `--no-ocr` | 禁用扫描件 OCR（降级为直接提取） |
+| `--no-ocr` | 禁用扫描件 OCR；仍报告检测到的页码并标记“已主动跳过” |
 | `--no-figures` | 关闭图片提取（默认开启） |
 | `--fig-min-size` | 图片过滤尺寸（默认 80px，过滤小图标） |
-| `--vision` | 用视觉模型（VLM）解读图片（需配置视觉 Key） |
+| `--vision` | 在完整流程中用视觉模型解读图片（需配置视觉 Key） |
+| `--no-vision` | 显式禁用视觉处理，可覆盖配置中的 `use_vision=true` |
+| `--vision-only` | 只提取和解读图片，不转换或翻译正文 |
+| `--test-config` | 发送最小请求测试翻译/视觉 URL、Key 和模型，不处理 PDF |
 | `--vision-model` | 视觉模型名（默认 `gpt-5.4-mini`，可换 gpt-4o/Qwen-VL 等） |
 | `--vision-base-url` | 视觉模型接口地址（OpenAI 兼容，默认 OpenAI 官方；中转站填其 `/v1` 地址） |
 | `--vision-api-key` | 视觉 API Key（默认读 `VISION_API_KEY` / `OPENAI_API_KEY` 环境变量） |
@@ -92,7 +97,9 @@ CLI 会拒绝未知字段、空值、错误类型或非法 URL，并返回非零
 | `--allow-insecure-http` | 显式允许远程 HTTP API；连接不加密，默认拒绝 |
 | `--temperature` | 翻译温度（默认 1.0） |
 
-## 输出文件（每篇 PDF 生成到输出目录）
+## 输出文件
+
+每篇 PDF 写入独立的 `<输出目录>/<文献名-路径哈希>/`，同名 PDF 不会覆盖。该目录内包含：
 
 | 文件 | 内容 |
 |---|---|
@@ -102,14 +109,14 @@ CLI 会拒绝未知字段、空值、错误类型或非法 URL，并返回非零
 | `<名>.extracted.md` | pdf-inspector 原始提取文本（可再喂给任意 AI） |
 | `<名>.figures.md` | 文献图片清单（含本地图片引用与图注） |
 | `<名>.figures-reading.md` | 图表解读（`--vision` 开启时由 VLM 生成） |
-| `figures/<文献名-路径哈希>/` 目录 | 从 PDF 提取的图片 PNG；每篇文献独立目录，避免覆盖 |
+| `figures/` 目录 | 当前文献提取的图片 PNG；外层文献目录已按路径哈希隔离 |
 
 ## 图片提取与理解
 
 pdf-inspector 只提取文本，图片会丢失。pdfreader 分两步补充：
 
 1. **图片提取**（默认开启）：PyMuPDF 逐页提取 PDF 内嵌图片（自动过滤小图标），
-   从页面文本定位图注（"Fig. N"）并按空间位置自动匹配，图片保存到每篇文献独立的 `figures/<文献名-路径哈希>/`，
+   从页面文本定位图注（"Fig. N"）并按空间位置自动匹配，图片保存在文献独立目录内的 `figures/`，
    清单写入 `<名>.figures.md`。
 2. **图片理解**（`--vision` 开启）：调用视觉模型（VLM）逐图生成结构化中文解读——
    图表类型、内容概述、关键元素、信息要点、与论文的关系，写入
@@ -122,8 +129,11 @@ pdf-inspector 只提取文本，图片会丢失。pdfreader 分两步补充：
 # 官方 OpenAI
 python -m pdfreader paper.pdf --vision
 
-# 中转站/兼容服务
-python -m pdfreader paper.pdf --vision --vision-base-url "http://xxx:3001/v1" --vision-model gpt-5.4-mini
+# 中转站/兼容服务（远程 HTTP 必须显式确认风险）
+python -m pdfreader paper.pdf --vision --vision-base-url "http://xxx:3001/v1" --vision-model gpt-5.4-mini --allow-insecure-http
+
+# 已翻译过正文，只补做图片解读
+python -m pdfreader paper.pdf --vision-only --config .\config.json
 ```
 
 > 提示：翻译（LLM）与图片理解（视觉模型）是两条独立链路，可分别配置 Key 与模型。

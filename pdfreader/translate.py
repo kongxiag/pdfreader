@@ -147,6 +147,18 @@ class LLMTranslator:
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"翻译接口调用失败: {exc}") from exc
 
+    def test_connection(self) -> str:
+        """发送最小文本请求，验证 URL、Key 和模型配置。"""
+        if self.dry_run:
+            raise RuntimeError("未配置翻译 API Key")
+        return self._call(
+            [
+                {"role": "system", "content": "只回复 OK。"},
+                {"role": "user", "content": "连接测试"},
+            ],
+            max_tokens=16,
+        )
+
     def _build_user_prompt(self, chunk: Chunk) -> str:
         parts = [f"请将以下文献片段翻译为简体中文。\n"]
         if chunk.heading_path:

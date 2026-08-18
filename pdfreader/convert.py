@@ -80,6 +80,7 @@ class PdfConversionResult:
     ocr_reasons_by_page: dict = field(default_factory=dict)
     processing_time_ms: int = 0
     ocr_used: bool = False
+    ocr_skipped: bool = False
     warnings: list = field(default_factory=list)
     has_encoding_issues: bool = False
     is_complex_layout: bool = False
@@ -135,7 +136,6 @@ def convert_pdf_to_markdown(
         except Exception as exc:  # OCR 运行时/模型不可用 → 降级
             res = pi.process_pdf(str(path))
             ocr_used = False
-            pages_needing_ocr = list(getattr(res, "pages_needing_ocr", []) or [])
             return _assemble(
                 path, res, pages_needing_ocr, ocr_used, start,
                 warnings=[f"OCR 不可用已降级为直接提取（{exc}）"],
@@ -144,10 +144,22 @@ def convert_pdf_to_markdown(
         # 3) 文本型：直接提取
         res = pi.process_pdf(str(path))
         ocr_used = False
-        if pages_needing_ocr and not enable_ocr:
-            pages_needing_ocr = []
+    warnings = []
+    ocr_skipped = bool(pages_needing_ocr and not enable_ocr)
+    if ocr_skipped:
+        warnings.append(
+            "检测到需要 OCR 的页面，但用户通过 --no-ocr 主动跳过；提取结果可能不完整"
+        )
 
-    return _assemble(path, res, pages_needing_ocr, ocr_used, start)
+    return _assemble(
+        path,
+        res,
+        pages_needing_ocr,
+        ocr_used,
+        start,
+        warnings=warnings,
+        ocr_skipped=ocr_skipped,
+    )
 
 
 def _assemble(
@@ -157,6 +169,7 @@ def _assemble(
     ocr_used: bool,
     start: float,
     warnings: Optional[list] = None,
+    ocr_skipped: bool = False,
 ) -> PdfConversionResult:
     elapsed_ms = int((time.perf_counter() - start) * 1000)
     title = _fix_meta_encoding(res.title or "")
@@ -171,6 +184,7 @@ def _assemble(
         ocr_reasons_by_page=dict(res.ocr_reasons_by_page or {}),
         processing_time_ms=elapsed_ms,
         ocr_used=ocr_used,
+        ocr_skipped=ocr_skipped,
         warnings=warnings or [],
         has_encoding_issues=bool(getattr(res, "has_encoding_issues", False)),
         is_complex_layout=bool(getattr(res, "is_complex_layout", False)),

@@ -147,6 +147,15 @@ class VisionReader:
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"视觉模型调用失败: {exc}") from exc
 
+    def test_connection(self) -> str:
+        """发送最小文本请求，验证视觉服务的 URL、Key 和模型可访问性。"""
+        if self.dry_run:
+            raise RuntimeError("未配置视觉 API Key")
+        return self._call(
+            [{"role": "user", "content": "只回复 OK，用于连接测试。"}],
+            max_tokens=16,
+        )
+
     def _encode_image(self, image_path: Path) -> str:
         b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
         ext = image_path.suffix.lower().lstrip(".") or "png"

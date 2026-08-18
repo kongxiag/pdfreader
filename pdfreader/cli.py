@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="基于 pdf-inspector 的 AI 文献阅读工具："
                     "PDF → Markdown → 中文翻译（任意 OpenAI 兼容 LLM）→ 中英对照报告",
     )
-    p.add_argument("pdfs", nargs="+", help="PDF 文件路径（支持多个/通配符）")
+    p.add_argument("pdfs", nargs="*", help="PDF 文件路径（支持多个/通配符）")
     p.add_argument("--out-dir", "-o", default="output", help="输出目录（默认 output/）")
     p.add_argument(
         "--formats", default="md",
@@ -52,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fig-min-size", type=int, default=80, help="图片提取过滤尺寸（默认 80px）")
     p.add_argument("--vision", action="store_true", default=False,
                    help="用视觉模型（VLM）解读图片（需配置视觉 Key，默认关闭）")
+    p.add_argument("--no-vision", action="store_true", default=False,
+                   help="显式禁用视觉处理，可覆盖配置文件中的 use_vision=true")
+    p.add_argument("--vision-only", action="store_true", default=False,
+                   help="只提取图片并执行视觉解读，不转换或翻译正文")
     p.add_argument("--vision-model", default=None, help="视觉模型名（默认 gpt-5.4-mini）")
     p.add_argument("--vision-base-url", default=None,
                    help="视觉模型接口地址（OpenAI 兼容），中转站请填其 /v1 地址")
@@ -68,6 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="JSON 配置文件路径（skill 生成），提供 translate/vision 的默认参数；命令行显式参数优先")
     p.add_argument("--allow-insecure-http", action="store_true", default=False,
                    help="显式允许远程 HTTP API（不加密，会暴露 Key 和文献内容；默认拒绝）")
+    p.add_argument("--test-config", action="store_true", default=False,
+                   help="发送最小请求测试翻译/视觉 API 配置，不处理 PDF")
     p.add_argument("--temperature", type=float, default=1.0, help="翻译温度（默认 1.0）")
     p.add_argument("--version", action="version", version=f"pdfreader {__version__}")
     return p
@@ -163,9 +169,12 @@ def _apply_config(args: argparse.Namespace, config: dict) -> argparse.Namespace:
     if args.vision_api_key is None:
         args.vision_api_key = vision.get("api_key") or None
 
-    # 视觉自动开关仅由显式 use_vision 控制。
-    if config.get("use_vision", False):
+    # 视觉自动开关可由 --no-vision 显式覆盖。
+    no_vision = getattr(args, "no_vision", False)
+    if config.get("use_vision", False) and not no_vision:
         args.vision = True
+    if no_vision:
+        args.vision = False
 
     # 远程 HTTP 默认拒绝；配置文件或命令行必须显式开启。
     if config.get("allow_insecure_http", False):
@@ -174,20 +183,124 @@ def _apply_config(args: argparse.Namespace, config: dict) -> argparse.Namespace:
     return args
 
 
+def _create_vision_reader(args: argparse.Namespace):
+    from .vision import VisionReader
+
+    return VisionReader(
+        api_key=args.vision_api_key,
+        model=args.vision_model,
+        base_url=args.vision_base_url,
+        allow_insecure_http=args.allow_insecure_http,
+    )
+
+
+def process_vision_only(pdf_path: str, args: argparse.Namespace) -> dict:
+    """只提取并解读图片，不执行正文转换或翻译。"""
+    from .figures import extract_figures
+    from .vision import readings_to_markdown
+
+    document_id = _safe_output_name(Path(pdf_path).stem, pdf_path)
+    document_dir = Path(args.out_dir) / document_id
+    print(f"\n=== 图片解读: {pdf_path} ===")
+    figures_result = extract_figures(
+        pdf_path,
+        out_dir=document_dir / "figures",
+        min_size=args.fig_min_size,
+    )
+    written = write_figures_report(figures_result, document_dir)
+    print(f"  图片: {figures_result.count} 张（跳过 {figures_result.skipped_small} 张小图）")
+
+    reader = _create_vision_reader(args)
+    if not reader.available:
+        raise RuntimeError("未配置视觉 API Key，无法执行 --vision-only")
+
+    def progress(done: int, total: int, reading) -> None:
+        print(f"    [解读进度] {done}/{total}（{reading.figure_path.name}）", flush=True)
+
+    reader.on_progress = progress
+    vision_result = reader.read_figures(figures_result.figures)
+    md = readings_to_markdown(vision_result.readings)
+    if md:
+        path = document_dir / f"{Path(pdf_path).stem}.figures-reading.md"
+        path.write_text(md, encoding="utf-8")
+        written["reading"] = path
+    print(f"  解读完成: {vision_result.ok_count}/{vision_result.total} 张成功")
+    return {
+        "pdf": pdf_path,
+        "type": "vision_only",
+        "pages": 0,
+        "chars": 0,
+        "chunks": 0,
+        "figures": figures_result.count,
+        "outputs": {key: str(path) for key, path in written.items()},
+    }
+
+
+def _test_api_config(args: argparse.Namespace) -> int:
+    """使用最小请求验证翻译和视觉配置。"""
+    failures = 0
+    if args.api_key:
+        try:
+            translator = LLMTranslator(
+                api_key=args.api_key,
+                model=args.model,
+                base_url=args.base_url,
+                temperature=args.temperature,
+                allow_insecure_http=args.allow_insecure_http,
+                max_retries=1,
+            )
+            translator.test_connection()
+            print(f"翻译 API: 成功（{args.model} @ {args.base_url}）")
+        except Exception as exc:  # noqa: BLE001
+            failures += 1
+            print(f"翻译 API: 失败（{exc}）", file=sys.stderr)
+    else:
+        failures += 1
+        print("翻译 API: 未配置 Key", file=sys.stderr)
+
+    vision_requested = bool(args.vision_api_key or args.vision)
+    if vision_requested:
+        try:
+            reader = _create_vision_reader(args)
+            if not reader.available:
+                raise RuntimeError("未配置视觉 API Key")
+            reader.max_retries = 1
+            reader.test_connection()
+            print(f"视觉 API: 成功（{args.vision_model} @ {args.vision_base_url}）")
+        except Exception as exc:  # noqa: BLE001
+            failures += 1
+            print(f"视觉 API: 失败（{exc}）", file=sys.stderr)
+    else:
+        print("视觉 API: 未配置，已跳过")
+    return 1 if failures else 0
+
+
 def process_one(
     pdf_path: str,
     args: argparse.Namespace,
     translator: LLMTranslator | None,
 ) -> dict:
     print(f"\n=== 处理: {pdf_path} ===")
+    document_id = _safe_output_name(Path(pdf_path).stem, pdf_path)
+    document_dir = Path(args.out_dir) / document_id
     result = convert_pdf_to_markdown(
         pdf_path,
         enable_ocr=not args.no_ocr,
     )
 
+    ocr_pages = [page + 1 for page in result.pages_needing_ocr]
+    if result.ocr_skipped:
+        ocr_status = "已主动跳过"
+    elif result.ocr_used:
+        ocr_status = "已执行"
+    elif ocr_pages:
+        ocr_status = "未执行/降级"
+    else:
+        ocr_status = "无需 OCR"
     print(
         f"  类型: {result.pdf_type} | 页数: {result.page_count} | "
-        f"需OCR页: {result.pages_needing_ocr or '无'} | 耗时: {result.processing_time_ms}ms"
+        f"需OCR页: {ocr_pages or '无'} | OCR状态: {ocr_status} | "
+        f"耗时: {result.processing_time_ms}ms"
     )
     for w in result.warnings:
         print(f"  ⚠️ {w}")
@@ -222,9 +335,7 @@ def process_one(
         print("  跳过翻译 (--no-translate)")
     else:
         if translator is None or not translator.available:
-            print("  ⚠️ 未配置翻译 API Key（LLM_API_KEY / DEEPSEEK_API_KEY / OPENAI_API_KEY 或 --api-key），使用 DRY-RUN 占位译文（仅验证流程）")
-            if translator is None:
-                translator = LLMTranslator(dry_run=True)
+            raise RuntimeError("翻译器不可用；请检查 API Key 配置")
         print(f"  开始翻译（模型: {translator.model} @ {translator.base_url}，{len(chunks)} 块）...")
         translations = translator.translate_document(chunks)
         ok = sum(1 for t in translations if t.ok)
@@ -232,7 +343,7 @@ def process_one(
 
     # 输出
     formats = tuple(f.strip() for f in args.formats.split(",") if f.strip())
-    written = write_report(result, chunks, translations, args.out_dir, formats=formats)
+    written = write_report(result, chunks, translations, document_dir, formats=formats)
 
     # 图片提取（默认开启）：PDF 内嵌图片 → PNG + 图注匹配
     figures_result = None
@@ -240,14 +351,13 @@ def process_one(
         from .figures import extract_figures
 
         print("  提取图片...")
-        figure_subdir = _safe_output_name(Path(pdf_path).stem, pdf_path)
         figures_result = extract_figures(
             pdf_path,
-            out_dir=Path(args.out_dir) / "figures" / figure_subdir,
+            out_dir=document_dir / "figures",
             min_size=args.fig_min_size,
         )
         print(f"  图片: {figures_result.count} 张（跳过 {figures_result.skipped_small} 张小图）")
-        fig_written = write_figures_report(figures_result, args.out_dir, formats=formats)
+        fig_written = write_figures_report(figures_result, document_dir, formats=formats)
         written.update(fig_written)
         for f_ in figures_result.figures:
             cap = f" | {f_.caption[:60]}" if f_.caption else ""
@@ -255,15 +365,10 @@ def process_one(
 
         # 视觉理解（--vision 开启）：VLM 解读每张图
         if args.vision and figures_result.figures:
-            from .vision import VisionReader, readings_to_markdown
+            from .vision import readings_to_markdown
             from pathlib import Path as _P
 
-            vreader = VisionReader(
-                api_key=args.vision_api_key,
-                model=args.vision_model,
-                base_url=args.vision_base_url,
-                allow_insecure_http=args.allow_insecure_http,
-            )
+            vreader = _create_vision_reader(args)
             if not vreader.available:
                 print("  ⚠️ 未配置视觉模型 Key（VISION_API_KEY / --vision-api-key），跳过图片解读。")
             else:
@@ -279,7 +384,7 @@ def process_one(
                 md = readings_to_markdown(vision_res.readings)
                 if md:
                     stem = _P(pdf_path).stem
-                    vp = _P(args.out_dir) / f"{stem}.figures-reading.md"
+                    vp = document_dir / f"{stem}.figures-reading.md"
                     vp.write_text(md, encoding="utf-8")
                     written["reading"] = vp
 
@@ -309,12 +414,32 @@ def main(argv: list[str] | None = None) -> int:
         print(f"配置错误: {exc}", file=sys.stderr)
         return 2
 
+    formats = tuple(f.strip() for f in args.formats.split(",") if f.strip())
+    invalid_formats = sorted(set(formats) - {"md", "zh", "html"})
+    if not formats or invalid_formats:
+        detail = ", ".join(invalid_formats) if invalid_formats else "空值"
+        print(f"配置错误: 不支持的输出格式: {detail}；允许 md,zh,html", file=sys.stderr)
+        return 2
+    args.formats = ",".join(dict.fromkeys(formats))
+
     if args.allow_insecure_http:
         print("⚠️ 已允许远程 HTTP API：API Key、论文文本和图片将以未加密方式传输。")
         print("   仅应对你信任的中转站开启 allow_insecure_http。")
 
+    if args.test_config:
+        return _test_api_config(args)
+    if not args.pdfs:
+        print("配置错误: 请提供至少一个 PDF 文件路径", file=sys.stderr)
+        return 2
+    if args.vision_only:
+        args.vision = True
+        args.no_translate = True
+        if not args.vision_api_key:
+            print("配置错误: --vision-only 需要视觉 API Key", file=sys.stderr)
+            return 2
+
     translator: LLMTranslator | None = None
-    if not args.no_translate:
+    if not args.no_translate and not args.vision_only:
         translator = LLMTranslator(
             api_key=args.api_key,
             model=args.model,
@@ -358,7 +483,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\n处理失败: {pdf}: 不是 PDF 文件", file=sys.stderr)
             continue
         try:
-            summary.append(process_one(pdf, args, translator))
+            if args.vision_only:
+                summary.append(process_vision_only(pdf, args))
+            else:
+                summary.append(process_one(pdf, args, translator))
         except Exception as exc:  # noqa: BLE001
             failures.append((pdf, str(exc)))
             print(f"\n处理失败: {pdf}: {exc}", file=sys.stderr)

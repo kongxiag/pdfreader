@@ -56,8 +56,15 @@ python -m pdfreader "<PDF路径>" --formats md,zh,html --config "<skill目录>\c
 ```
 
 3. 流水线自动完成分类、提取/OCR、分块、翻译、图片提取和图注匹配。
-4. 批量处理可传入多个路径或通配符；任一文件失败不会阻断其他文件，但最终返回非零退出码。
-5. 读取 `.zh.md` 或 `.bilingual.md`，向用户汇报研究问题、方法、结论、术语和生成文件路径。
+4. 输出写入 `<out-dir>/<文献名-路径哈希>/`；同名 PDF 不会覆盖。
+5. 批量处理可传入多个路径或通配符；任一文件失败不会阻断其他文件，但最终返回非零退出码。
+6. 读取 `.zh.md` 或 `.bilingual.md`，向用户汇报研究问题、方法、结论、术语和生成文件路径。
+
+处理长文献前可先验证配置：
+
+```powershell
+python -m pdfreader --test-config --config "<skill目录>\config.json"
+```
 
 ## 图片理解路由
 
@@ -67,8 +74,9 @@ python -m pdfreader "<PDF路径>" --formats md,zh,html --config "<skill目录>\c
 2. 当前模型能读图：逐张生成中文解读，不调用外部视觉 API。
 3. 当前模型不能读图：若用户要图表解读，再收集视觉 API 配置；同样先说明明文 Key 风险并取得确认。
 4. 外部视觉 API 调用使用同一个绝对 `--config` 路径并追加 `--vision`。
+5. 若正文已处理、只需补做图片解读，使用 `--vision-only`，避免重复翻译。
 
-图片保存在 `figures/<文献名-路径哈希>/`，每篇文献隔离，报告链接应保持有效。
+每篇文献写入 `<out-dir>/<文献名-路径哈希>/`；图片位于其中的 `figures/`，报告链接应保持有效。
 
 ## 安全边界
 
@@ -85,4 +93,4 @@ python -m pdfreader "<PDF路径>" --formats md,zh,html --config "<skill目录>\c
 - `<名>.extracted.md`：原始提取文本
 - `<名>.figures.md`：图片和图注清单
 - `<名>.figures-reading.md`：图表解读
-- `figures/<文献名-路径哈希>/`：提取图片
+- `<out-dir>/<文献名-路径哈希>/figures/`：提取图片
