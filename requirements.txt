@@ -1,0 +1,2 @@
+pdf-inspector>=1.15.0
+pymupdf>=1.24.0

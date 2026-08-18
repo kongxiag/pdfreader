@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local secrets and configuration
+.env
+.env.*
+config.json
+skill/pdfreader/config.json
+
+# Generated literature outputs
+output/
+
+# Test/runtime artifacts
+tests/.tmp/
+tests/.tmp-*/
+tests/smoke-output/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
