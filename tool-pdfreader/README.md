@@ -32,6 +32,19 @@ npm run build        # tsc 类型检查 + 声明生成 + esbuild 打包 → lib/
 
 ## 安装到 DSH
 
+### 方式一：一键脚本（推荐）
+
+```bash
+node tool-pdfreader/setup.mjs            # 自动安装 + 注册 + 自检
+node tool-pdfreader/setup.mjs --dry-run  # 先看计划，不实际改动
+```
+
+脚本会：探测 `dsh` 并用 `dsh plugin add` 安装（没有 `dsh`/`pnpm` 时自动降级为纯 Node
+「建符号链接 + 写 cordis.patch.yml」），然后自检（Python `--doctor` + 插件加载冒烟），
+最后提示重启。幂等，可重复运行。
+
+### 方式二：手工三步
+
 ### 第 1 步：把包装进 profile
 
 ```bash
