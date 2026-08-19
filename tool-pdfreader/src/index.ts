@@ -18,6 +18,7 @@
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition, JsonSchemaNode } from '@deepseek-ai/dsh-tools'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
@@ -26,13 +27,17 @@ import z from '@deepseek-ai/schemastery'
 export const name = 'tool-pdfreader'
 export const inject = ['tools', 'subprocess']
 
+/** 插件所在仓库根：lib/index.js 位于 <repo>/tool-pdfreader/lib/，向上两级即仓库根。
+ *  仅在 link: 安装（插件 realpath 落在仓库内）时可靠；file:/npm 安装需显式配置 cwd。 */
+const DEFAULT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+
 /** 插件配置：在 cordis.patch.yml / profile 中提供。 */
 export interface Config {
-  /** pdf-reader 项目目录（`python -m pdfreader` 的运行目录），绝对路径。 */
+  /** pdf-reader 项目目录（`python -m pdfreader` 的运行目录）；空串表示自动从插件位置推导仓库根。 */
   cwd: string
   /** Python 可执行文件：裸名走 PATH，或绝对路径。 */
   pythonBin: string
-  /** 默认 config.json 绝对路径；空串表示不传 --config。 */
+  /** 默认 config.json 绝对路径；空串表示自动尝试 <cwd>/.agents/skills/pdfreader/config.json。 */
   configPath: string
   /** 默认输出格式（md/zh/html 逗号分隔）。 */
   defaultFormats: string
@@ -45,7 +50,7 @@ export interface Config {
 }
 
 export const Config = z.object({
-  cwd: z.string().required(),
+  cwd: z.string().default(''),
   pythonBin: z.string().default('python'),
   configPath: z.string().default(''),
   defaultFormats: z.string().default('md,zh,html'),
@@ -215,7 +220,7 @@ function renderResult(_args: unknown, value: unknown) {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  const cwd = path.resolve(config.cwd)
+  const cwd = config.cwd ? path.resolve(config.cwd) : DEFAULT_REPO_ROOT
 
   const definition: ToolDefinition = {
     name: 'pdfreader',
@@ -247,8 +252,11 @@ export function apply(ctx: Context, config: Config): void {
       if (a.vision_only) argv.push('--vision-only')
       if (a.no_figures) argv.push('--no-figures')
       if (a.chunk_tokens != null) argv.push('--chunk-tokens', String(a.chunk_tokens))
-      const cfgPath = a.config ?? config.configPath
-      if (cfgPath) argv.push('--config', path.resolve(cwd, cfgPath))
+      const explicitCfg = a.config ?? config.configPath
+      const defaultCfg = path.join(cwd, '.agents', 'skills', 'pdfreader', 'config.json')
+      const cfgPath = explicitCfg ? path.resolve(cwd, explicitCfg) : defaultCfg
+      const cfgExists = await fs.stat(cfgPath).then(() => true, () => false)
+      if (explicitCfg || cfgExists) argv.push('--config', cfgPath)
 
       const timeoutSignal = AbortSignal.timeout(config.timeoutMs)
       const signal = AbortSignal.any([exec.signal, timeoutSignal])

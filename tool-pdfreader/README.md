@@ -35,7 +35,7 @@ npm run build        # tsc 类型检查 + 声明生成 + esbuild 打包 → lib/
 ### 第 1 步：把包装进 profile
 
 ```bash
-dsh plugin --profile web add D:\阅读文献\pdf-reader\tool-pdfreader
+dsh plugin --profile web add /path/to/pdf-reader/tool-pdfreader   # 换成你的实际路径
 ```
 
 `dsh plugin` 转发给 pnpm，把本目录作为依赖装进
@@ -52,9 +52,9 @@ dsh plugin --profile web add D:\阅读文献\pdf-reader\tool-pdfreader
     - id: tool-pdfreader
       name: 'dsh-tool-pdfreader'
       config:
-        cwd: D:\阅读文献\pdf-reader
+        # cwd / configPath 均可省略：cwd 自动定位到插件所在仓库根，configPath 自动尝试
+        # 仓库根下的 .agents/skills/pdfreader/config.json。仅非标准布局时才需显式填写。
         pythonBin: python
-        configPath: D:\阅读文献\.agents\skills\pdfreader\config.json
         defaultFormats: md,zh,html
         outDir: output
         timeoutMs: 600000
@@ -73,9 +73,9 @@ dsh plugin --profile web add D:\阅读文献\pdf-reader\tool-pdfreader
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `cwd` | —（必填） | `python -m pdfreader` 的运行目录（绝对路径） |
+| `cwd` | 自动 | `python -m pdfreader` 的运行目录；默认自动定位仓库根，仅 `file:`/npm 安装或非标准布局时需显式填写 |
 | `pythonBin` | `python` | Python 可执行文件（裸名走 PATH 或绝对路径） |
-| `configPath` | `''` | 默认 config.json 绝对路径；空串表示不传 `--config` |
+| `configPath` | 自动 | 默认 config.json；空串时自动尝试 `<cwd>/.agents/skills/pdfreader/config.json`（存在才传） |
 | `defaultFormats` | `md,zh,html` | 默认输出格式 |
 | `outDir` | `output` | 输出目录（相对 `cwd` 或绝对） |
 | `timeoutMs` | `600000` | 单次协作超时预算（大文献翻译可能数分钟） |

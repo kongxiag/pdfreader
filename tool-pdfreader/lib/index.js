@@ -2,6 +2,7 @@
 import { promises as fs } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ../../../npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/cosmokit/lib/index.js
 function isNullable(value) {
@@ -794,8 +795,9 @@ defineMethod("transform", [
 // src/index.ts
 var name = "tool-pdfreader";
 var inject = ["tools", "subprocess"];
+var DEFAULT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 var Config = Schema.object({
-  cwd: Schema.string().required(),
+  cwd: Schema.string().default(""),
   pythonBin: Schema.string().default("python"),
   configPath: Schema.string().default(""),
   defaultFormats: Schema.string().default("md,zh,html"),
@@ -918,7 +920,7 @@ function renderResult(_args, value) {
   return [{ type: "text", text: lines.join("\n") }];
 }
 function apply(ctx, config) {
-  const cwd = path.resolve(config.cwd);
+  const cwd = config.cwd ? path.resolve(config.cwd) : DEFAULT_REPO_ROOT;
   const definition = {
     name: "pdfreader",
     description: DESCRIPTION,
@@ -951,8 +953,11 @@ function apply(ctx, config) {
       if (a.vision_only) argv.push("--vision-only");
       if (a.no_figures) argv.push("--no-figures");
       if (a.chunk_tokens != null) argv.push("--chunk-tokens", String(a.chunk_tokens));
-      const cfgPath = a.config ?? config.configPath;
-      if (cfgPath) argv.push("--config", path.resolve(cwd, cfgPath));
+      const explicitCfg = a.config ?? config.configPath;
+      const defaultCfg = path.join(cwd, ".agents", "skills", "pdfreader", "config.json");
+      const cfgPath = explicitCfg ? path.resolve(cwd, explicitCfg) : defaultCfg;
+      const cfgExists = await fs.stat(cfgPath).then(() => true, () => false);
+      if (explicitCfg || cfgExists) argv.push("--config", cfgPath);
       const timeoutSignal = AbortSignal.timeout(config.timeoutMs);
       const signal = AbortSignal.any([exec.signal, timeoutSignal]);
       const python = await ctx.subprocess.resolveExecutable(config.pythonBin, void 0, signal);
