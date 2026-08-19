@@ -94,6 +94,7 @@ CLI 会拒绝未知字段、空值、错误类型或非法 URL，并返回非零
 | `--model` | 翻译模型名（默认 `deepseek-chat`，可换任意 OpenAI 兼容模型） |
 | `--base-url` | 翻译接口地址（默认 DeepSeek；其他服务/中转站填其 `/v1` 地址） |
 | `--api-key` | 翻译 API Key（默认读 `LLM_API_KEY` / `DEEPSEEK_API_KEY` / `OPENAI_API_KEY`） |
+| `--thinking` / `--no-thinking` | 启用/关闭 DeepSeek 深度思考（默认关闭，节省 token、避免翻译块因推理超长而失败） |
 | `--config` | JSON 配置文件，提供翻译/视觉参数与安全开关 |
 | `--allow-insecure-http` | 显式允许远程 HTTP API；连接不加密，默认拒绝 |
 | `--temperature` | 翻译温度（默认 1.0） |

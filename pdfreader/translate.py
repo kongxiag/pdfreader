@@ -77,6 +77,7 @@ class LLMTranslator:
         glossary: Optional[dict] = None,
         on_progress: Optional[Callable[[int, int, Chunk], None]] = None,
         dry_run: bool = False,
+        thinking: bool = False,
     ) -> None:
         self.api_key = api_key or self._resolve_key()
         self.model = model
@@ -91,6 +92,7 @@ class LLMTranslator:
         self.glossary = dict(glossary or {})
         self.on_progress = on_progress
         self.dry_run = dry_run or not self.api_key
+        self.thinking = thinking
 
     @staticmethod
     def _resolve_key() -> str:
@@ -112,6 +114,10 @@ class LLMTranslator:
             "max_tokens": max_tokens,
             "temperature": self.temperature,
         }
+        # DeepSeek 深度思考开关：翻译默认关闭思考以节省 token，避免块因推理超长而失败。
+        # 仅在 DeepSeek 端点下发 thinking 参数，避免污染其他 OpenAI 兼容服务。
+        if "deepseek" in self.base_url.lower():
+            payload["thinking"] = {"type": "enabled" if self.thinking else "disabled"}
         req = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=json.dumps(payload).encode("utf-8"),

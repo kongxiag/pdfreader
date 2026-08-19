@@ -2,7 +2,8 @@
   "translate": {
     "model": "deepseek-chat",
     "base_url": "https://api.deepseek.com/v1",
-    "api_key": ""
+    "api_key": "",
+    "thinking": false
   },
   "vision": {
     "model": "gpt-4o",

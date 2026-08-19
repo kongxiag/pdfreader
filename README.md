@@ -103,6 +103,7 @@ variables remain an optional alternative.
 | `--model` | Translation model name (default `deepseek-chat`) |
 | `--base-url` | Translation endpoint (default DeepSeek) |
 | `--api-key` | Translation API key (defaults to `LLM_API_KEY` / `DEEPSEEK_API_KEY` / `OPENAI_API_KEY`) |
+| `--thinking` / `--no-thinking` | Enable/disable DeepSeek deep thinking (default off, saving tokens and avoiding long reasoning failures) |
 | `--config` | JSON config file providing translation/vision defaults and security switches |
 | `--allow-insecure-http` | Explicitly allow remote HTTP APIs (unencrypted; rejected by default) |
 | `--temperature` | Translation temperature (default 1.0) |

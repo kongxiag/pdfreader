@@ -72,6 +72,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="翻译模型接口地址（OpenAI 兼容，默认 DeepSeek；其他服务/中转站填其 /v1 地址）")
     p.add_argument("--api-key", default=None,
                    help="翻译 API Key（默认读环境变量 LLM_API_KEY / DEEPSEEK_API_KEY / OPENAI_API_KEY）")
+    p.add_argument("--thinking", dest="thinking", action="store_true", default=None,
+                   help="启用 DeepSeek 深度思考（默认关闭，以节省 token、避免翻译块因推理超长而失败）")
+    p.add_argument("--no-thinking", dest="thinking", action="store_false",
+                   help="关闭 DeepSeek 深度思考（默认）")
     p.add_argument("--config", default=None,
                    help="JSON 配置文件路径（skill 生成），提供 translate/vision 的默认参数；命令行显式参数优先")
     p.add_argument("--allow-insecure-http", action="store_true", default=False,
@@ -142,7 +146,10 @@ def _validate_config(config: dict) -> None:
         section = config.get(section_name, {})
         if not isinstance(section, dict):
             raise ValueError(f"配置字段 {section_name} 必须是对象")
-        unknown_fields = set(section) - {"model", "base_url", "api_key"}
+        allowed_fields = {"model", "base_url", "api_key"}
+        if section_name == "translate":
+            allowed_fields.add("thinking")
+        unknown_fields = set(section) - allowed_fields
         if unknown_fields:
             raise ValueError(
                 f"配置字段 {section_name} 包含未知项: "
@@ -153,6 +160,9 @@ def _validate_config(config: dict) -> None:
                 not isinstance(section[field], str) or not section[field].strip()
             ):
                 raise ValueError(f"配置字段 {section_name}.{field} 必须是非空字符串")
+
+        if "thinking" in section and not isinstance(section["thinking"], bool):
+            raise ValueError(f"配置字段 {section_name}.thinking 必须是布尔值")
 
         if "api_key" in section and section["api_key"] is not None:
             key = section["api_key"]
@@ -193,6 +203,8 @@ def _apply_config(args: argparse.Namespace, config: dict) -> argparse.Namespace:
         args.base_url = translate.get("base_url", "https://api.deepseek.com/v1")
     if args.api_key is None:
         args.api_key = translate.get("api_key") or None
+    if getattr(args, "thinking", None) is None:
+        args.thinking = translate.get("thinking", False)
 
     # 视觉参数
     if args.vision_model is None:
@@ -282,6 +294,7 @@ def _test_api_config(args: argparse.Namespace) -> int:
                 temperature=args.temperature,
                 allow_insecure_http=args.allow_insecure_http,
                 max_retries=1,
+                thinking=args.thinking,
             )
             translator.test_connection()
             print(f"翻译 API: 成功（{args.model} @ {args.base_url}）")
@@ -532,6 +545,7 @@ def main(argv: list[str] | None = None) -> int:
             temperature=args.temperature,
             allow_insecure_http=args.allow_insecure_http,
             on_progress=_progress,
+            thinking=args.thinking,
         )
         if not translator.available:
             print(
