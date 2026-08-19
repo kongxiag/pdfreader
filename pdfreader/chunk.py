@@ -19,6 +19,41 @@ _HEADING_RE = re.compile(r"^(#{1,4})\s+(.*)$")
 _CODE_FENCE_RE = re.compile(r"^```")
 _TABLE_ROW_RE = re.compile(r"^\s*\|")
 
+# 参考文献类标题（小写），用于「跳过参考文献翻译」。中英文都覆盖。
+REFERENCE_HEADINGS = (
+    "references",
+    "bibliography",
+    "references and notes",
+    "notes and references",
+    "literature cited",
+    "works cited",
+    "reference list",
+    "sources",
+    "参考文献",
+    "引用文献",
+)
+
+
+def _is_reference_heading(heading: str) -> bool:
+    """判断标题是否为参考文献类标题（大小写不敏感，忽略编号与首尾标点）。"""
+    h = re.sub(r"^[\d.]+[\s.]*", "", heading.strip()).strip().strip(":.").lower()
+    return h in REFERENCE_HEADINGS
+
+
+# 参考文献标题行（整行匹配）：支持 `# References`、`**References**`、`References` 等形式。
+_REFERENCE_MARKER_LINE_RE = re.compile(
+    r"^\s*(?:\d+[.\s]+)?(?:#{1,4}\s+)?\*{0,2}\s*"
+    r"(?:references|bibliography|references and notes|notes and references|"
+    r"literature cited|works cited|reference list|sources|参考文献|引用文献)"
+    r"\*{0,2}\s*:?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _contains_reference_marker(text: str) -> bool:
+    """判断文本中是否存在参考文献标题行（# 标题 / **加粗** / 纯文本行）。"""
+    return any(_REFERENCE_MARKER_LINE_RE.match(line) for line in text.splitlines())
+
 
 @dataclass
 class Chunk:
@@ -28,6 +63,7 @@ class Chunk:
     text: str
     heading_path: str = ""   # 所属标题路径，如 "1. Introduction > 1.1 Background"
     char_count: int = 0
+    is_reference: bool = False  # 是否为参考文献部分
 
     def __post_init__(self) -> None:
         self.char_count = len(self.text)
@@ -191,6 +227,17 @@ def chunk_markdown(
     # 重编号
     for i, c in enumerate(chunks):
         c.index = i
+
+    # 定位参考文献：从第一个含参考文献标题行的块起，其后全部标记为 reference。
+    # 标题形式支持 `# References`、`**References**`、纯文本 `References` 等。
+    ref_start: int | None = None
+    for i, c in enumerate(chunks):
+        if _is_reference_heading(c.heading_path) or _contains_reference_marker(c.text):
+            ref_start = i
+            break
+    if ref_start is not None:
+        for c in chunks[ref_start:]:
+            c.is_reference = True
 
     # 空文档保护
     if not chunks:

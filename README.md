@@ -87,6 +87,8 @@ variables remain an optional alternative.
 | `-o, --out-dir` | Output directory (default `output/`) |
 | `--formats` | Output formats, comma-separated: `md`(bilingual), `zh`(Chinese-only), `html`(web page) |
 | `--no-translate` | Extract only, skip translation |
+| `--skip-references` | Skip translating the references/bibliography section, keeping the original (default on) |
+| `--no-skip-references` | Translate everything, including the references |
 | `--no-ocr` | Disable OCR for scanned pages; still reports detected pages and marks them "skipped" |
 | `--no-figures` | Disable figure extraction (enabled by default) |
 | `--fig-min-size` | Figure size filter (default 80 px, drops small icons) |

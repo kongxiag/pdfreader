@@ -79,6 +79,8 @@ def build_bilingual_markdown(
         lines.append("")
         if res.ok:
             lines.append(_normalize_heading_markdown(res.translation))
+        elif chunk.is_reference:
+            lines.append("> ⏭️ 参考文献：保留原文，未翻译。")
         elif res.skipped:
             lines.append("> 已跳过翻译；请阅读上方原文或使用 extracted.md。")
         else:
@@ -116,6 +118,15 @@ def build_plain_chinese(
             if trans_body:
                 lines.append("")
                 lines.append(_normalize_heading_markdown(trans_body))
+        elif chunk.is_reference:
+            # 参考文献保留原文（不译），明确标注避免误以为漏译
+            if heading:
+                lines.append(heading)
+            lines.append("")
+            lines.append("> ⏭️ 参考文献（原文，未翻译）：")
+            if body:
+                lines.append("")
+                lines.append(_normalize_heading_markdown(body))
         elif res.skipped:
             lines.append(f"> 块 {chunk.index + 1} 已跳过翻译。")
         else:
@@ -173,6 +184,8 @@ def build_html_report(
         body.append("<div class='side translation'><h3>译文</h3>")
         if res.ok:
             body.append(_md_to_html(res.translation))
+        elif chunk.is_reference:
+            body.append("<p class='meta'>⏭️ 参考文献：保留原文，未翻译。</p>")
         elif res.skipped:
             body.append("<p class='meta'>已跳过翻译；请阅读原文。</p>")
         else:

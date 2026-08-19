@@ -191,7 +191,7 @@ class LLMTranslator:
             )
 
         prompt = self._build_user_prompt(chunk)
-        max_tokens = max(2048, int(estimate_tokens(chunk.text) * 1.5))
+        max_tokens = max(4096, int(estimate_tokens(chunk.text) * 3) + 2048)
         try:
             text = self._call(
                 [
@@ -220,14 +220,33 @@ class LLMTranslator:
                 error=str(exc),
             )
 
-    def translate_document(self, chunks: list[Chunk]) -> list[TranslationResult]:
-        """串行翻译整篇文献的所有块，返回有序结果。"""
+    def translate_document(
+        self,
+        chunks: list[Chunk],
+        *,
+        skip_references: bool = True,
+    ) -> list[TranslationResult]:
+        """串行翻译整篇文献的所有块，返回有序结果。
+
+        skip_references=True 时，参考文献块（chunk.is_reference）不调用 API，
+        直接产出 skipped 结果，节省 token 与时间。
+        """
         results: list[TranslationResult] = []
         total = len(chunks)
         for i, chunk in enumerate(chunks):
             if self.on_progress:
                 self.on_progress(i + 1, total, chunk)
-            results.append(self.translate_chunk(chunk))
+            if skip_references and chunk.is_reference:
+                results.append(TranslationResult(
+                    index=chunk.index,
+                    source=chunk.text,
+                    translation="",
+                    ok=False,
+                    skipped=True,
+                    error="参考文献，已跳过翻译",
+                ))
+            else:
+                results.append(self.translate_chunk(chunk))
         return results
 
     def _dry_translation(self, chunk: Chunk) -> str:

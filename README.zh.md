@@ -78,6 +78,8 @@ CLI 会拒绝未知字段、空值、错误类型或非法 URL，并返回非零
 | `-o, --out-dir` | 输出目录（默认 `output/`） |
 | `--formats` | 输出格式：`md`(中英对照)、`zh`(纯中文)、`html`(网页)，逗号分隔 |
 | `--no-translate` | 只转换提取，跳过翻译 |
+| `--skip-references` | 跳过参考文献（References）部分的翻译，保留原文（默认开启） |
+| `--no-skip-references` | 不跳过参考文献，全文翻译 |
 | `--no-ocr` | 禁用扫描件 OCR；仍报告检测到的页码并标记“已主动跳过” |
 | `--no-figures` | 关闭图片提取（默认开启） |
 | `--fig-min-size` | 图片过滤尺寸（默认 80px，过滤小图标） |

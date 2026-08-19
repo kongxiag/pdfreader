@@ -45,6 +45,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="输出格式，逗号分隔：md(中英对照), zh(纯中文), html(网页)（默认 md）",
     )
     p.add_argument("--no-translate", action="store_true", help="只转换提取，不调用翻译 API")
+    p.add_argument("--skip-references", action="store_true", default=True,
+                   help="跳过参考文献（References）部分的翻译，保留原文（默认开启）")
+    p.add_argument("--no-skip-references", dest="skip_references", action="store_false",
+                   help="不跳过参考文献，全文翻译")
     p.add_argument("--no-ocr", action="store_true", help="禁用扫描件 OCR（有扫描页时降级直接提取）")
     p.add_argument("--figures", action="store_true", default=True,
                    help="提取 PDF 内嵌图片并匹配图注（默认开启，--no-figures 关闭）")
@@ -416,7 +420,7 @@ def process_one(
         if translator is None or not translator.available:
             raise RuntimeError("翻译器不可用；请检查 API Key 配置")
         print(f"  开始翻译（模型: {translator.model} @ {translator.base_url}，{len(chunks)} 块）...")
-        translations = translator.translate_document(chunks)
+        translations = translator.translate_document(chunks, skip_references=args.skip_references)
         ok = sum(1 for t in translations if t.ok)
         print(f"  翻译完成: {ok}/{len(chunks)} 块成功")
 

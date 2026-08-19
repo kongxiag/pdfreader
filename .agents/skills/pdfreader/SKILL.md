@@ -46,7 +46,23 @@ user-invocable: true
 
 远程 API 默认必须使用 HTTPS。localhost/127.0.0.1 HTTP 自动允许；可信远程 HTTP 中转站只有在用户明确接受明文传输风险后，才设置 `allow_insecure_http: true`。
 
-## 标准处理流程
+## 是否翻译：先询问用户
+
+处理 PDF 前，先用 `ask_user_question` 询问用户是否要翻译为中文，不要擅自替用户决定。
+
+- **翻译为中文**：走下方「标准处理流程（翻译分支）」。
+- **不翻译，用原文**：运行
+
+  ```powershell
+  python -m pdfreader "<PDF路径>" --no-translate --formats md --config "<skill目录>\config.json"
+  ```
+
+  然后读取 `<名>.extracted.md`（pdf-inspector 提取的原文 Markdown），
+  直接用原文语言回答用户的问题、做分析或总结，不要调用翻译。
+
+> 若用户在同一会话中已明确说过「要翻译」或「不要翻译」，沿用该决定即可，不必每次都问。
+
+## 标准处理流程（翻译分支）
 
 1. 确认 PDF 文件存在。
 2. 使用绝对配置路径运行：
@@ -90,7 +106,7 @@ python -m pdfreader --test-config --config "<skill目录>\config.json"
 - `<名>.bilingual.md`：中英对照
 - `<名>.zh.md`：纯中文译文
 - `<名>.report.html`：HTML 报告
-- `<名>.extracted.md`：原始提取文本
+- `<名>.extracted.md`：原始提取文本（用户选择「不翻译」时，用它来原文直答）
 - `<名>.figures.md`：图片和图注清单
 - `<名>.figures-reading.md`：图表解读
 - `<out-dir>/<文献名-路径哈希>/figures/`：提取图片
