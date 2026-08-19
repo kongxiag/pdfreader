@@ -74,6 +74,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="显式允许远程 HTTP API（不加密，会暴露 Key 和文献内容；默认拒绝）")
     p.add_argument("--test-config", action="store_true", default=False,
                    help="发送最小请求测试翻译/视觉 API 配置，不处理 PDF")
+    p.add_argument("--doctor", action="store_true", default=False,
+                   help="自检：输出 Python/依赖/配置/连通性状态，不处理 PDF")
     p.add_argument("--json-out", default=None,
                    help="将机器可读结果(JSON)写入指定文件，供 DSH 插件等程序化调用解析")
     p.add_argument("--temperature", type=float, default=1.0, help="翻译温度（默认 1.0）")
@@ -114,6 +116,18 @@ def _load_config(config_path: str | None) -> dict:
     return data
 
 
+def _is_placeholder_key(key: str | None) -> bool:
+    """判断 API Key 是否仍是占位符/未填写（应视为未配置而非真实 Key）。"""
+    if not key or not key.strip():
+        return True
+    try:
+        key.encode("ascii")
+    except UnicodeEncodeError:
+        return True
+    lowered = key.strip().lower()
+    return any(m in lowered for m in ("请填写", "your ", "replace", "example", "placeholder", "changeme", "xxx", "todo"))
+
+
 def _validate_config(config: dict) -> None:
     allowed_root = {"translate", "vision", "use_vision", "allow_insecure_http"}
     unknown = set(config) - allowed_root
@@ -130,11 +144,24 @@ def _validate_config(config: dict) -> None:
                 f"配置字段 {section_name} 包含未知项: "
                 f"{', '.join(sorted(unknown_fields))}"
             )
-        for field in ("model", "base_url", "api_key"):
+        for field in ("model", "base_url"):
             if field in section and (
                 not isinstance(section[field], str) or not section[field].strip()
             ):
                 raise ValueError(f"配置字段 {section_name}.{field} 必须是非空字符串")
+
+        if "api_key" in section and section["api_key"] is not None:
+            key = section["api_key"]
+            if not isinstance(key, str):
+                raise ValueError(f"配置字段 {section_name}.api_key 必须是字符串（空串表示未配置）")
+            if key.strip():
+                try:
+                    key.encode("ascii")
+                except UnicodeEncodeError:
+                    raise ValueError(
+                        f"配置字段 {section_name}.api_key 含非 ASCII 字符，疑似仍是占位符；"
+                        "请替换为真实 Key，或置空表示未配置"
+                    )
 
     for field in ("use_vision", "allow_insecure_http"):
         if field in config and not isinstance(config[field], bool):
@@ -239,9 +266,10 @@ def process_vision_only(pdf_path: str, args: argparse.Namespace) -> dict:
 
 
 def _test_api_config(args: argparse.Namespace) -> int:
-    """使用最小请求验证翻译和视觉配置。"""
+    """使用最小请求验证翻译和视觉配置。占位符/未配置视为已跳过而非失败。"""
     failures = 0
-    if args.api_key:
+
+    if args.api_key and not _is_placeholder_key(args.api_key):
         try:
             translator = LLMTranslator(
                 api_key=args.api_key,
@@ -257,11 +285,10 @@ def _test_api_config(args: argparse.Namespace) -> int:
             failures += 1
             print(f"翻译 API: 失败（{exc}）", file=sys.stderr)
     else:
-        failures += 1
-        print("翻译 API: 未配置 Key", file=sys.stderr)
+        print("翻译 API: 未配置（或仍是占位符），已跳过")
 
-    vision_requested = bool(args.vision_api_key or args.vision)
-    if vision_requested:
+    vision_has_key = bool(args.vision_api_key and not _is_placeholder_key(args.vision_api_key))
+    if args.vision or vision_has_key:
         try:
             reader = _create_vision_reader(args)
             if not reader.available:
@@ -275,6 +302,38 @@ def _test_api_config(args: argparse.Namespace) -> int:
     else:
         print("视觉 API: 未配置，已跳过")
     return 1 if failures else 0
+
+
+def _run_doctor(args: argparse.Namespace) -> int:
+    """自检：输出 Python/依赖/配置/连通性状态，不处理 PDF。"""
+    import platform
+
+    ok = True
+
+    print("== pdfreader 自检 ==")
+    py_ok = sys.version_info >= (3, 10)
+    ok &= py_ok
+    print(f"Python: {platform.python_version()}（{'OK' if py_ok else '需 >= 3.10'}）")
+
+    for mod, label in (("pdf_inspector", "pdf-inspector"), ("fitz", "PyMuPDF")):
+        try:
+            m = __import__(mod)
+            version = getattr(m, "__version__", "?")
+            print(f"{label}: 已安装（{version}）")
+        except Exception as exc:  # noqa: BLE001
+            ok = False
+            print(f"{label}: 缺失（{exc}）")
+
+    def _mask(key: str | None) -> str:
+        if not key or _is_placeholder_key(key):
+            return "未配置"
+        return f"{key[:3]}***{key[-2:]}" if len(key) > 6 else "***"
+
+    print(f"翻译: model={args.model} base_url={args.base_url} key={_mask(args.api_key)}")
+    print(f"视觉: model={args.vision_model} base_url={args.vision_base_url} key={_mask(args.vision_api_key)}")
+
+    ok &= (_test_api_config(args) == 0)
+    return 0 if ok else 1
 
 
 def _write_json_out(json_path: str, failures: list[tuple[str, str]], summary: list[dict]) -> None:
@@ -448,6 +507,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.test_config:
         return _test_api_config(args)
+    if args.doctor:
+        return _run_doctor(args)
     if not args.pdfs:
         print("配置错误: 请提供至少一个 PDF 文件路径", file=sys.stderr)
         return 2

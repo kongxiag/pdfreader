@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from pdfreader.cli import _apply_config, _load_config, build_parser, _validate_config, main
+from pdfreader.cli import _apply_config, _is_placeholder_key, _load_config, build_parser, _validate_config, main
 from pdfreader.url_security import InsecureBaseUrlError
 
 
@@ -24,11 +24,24 @@ class ConfigSecurityTests(unittest.TestCase):
     def _config_path(self, name: str = "config.json") -> Path:
         return self.tmp_dir / name
 
-    def test_accepts_nonempty_api_keys_in_config(self) -> None:
+    def test_api_key_validation(self) -> None:
+        # 非空 ASCII key 通过
         _validate_config({"translate": {"api_key": "secret"}})
         _validate_config({"vision": {"api_key": "secret"}})
-        with self.assertRaisesRegex(ValueError, "非空字符串"):
-            _validate_config({"translate": {"api_key": ""}})
+        # 空串/null 表示「未配置」，允许
+        _validate_config({"translate": {"api_key": ""}})
+        _validate_config({"translate": {"api_key": None}})
+        # 中文占位符在加载期被拒，而不是等发请求时 latin-1 崩溃
+        with self.assertRaisesRegex(ValueError, "非 ASCII"):
+            _validate_config({"translate": {"api_key": "请填写翻译 API Key"}})
+
+    def test_placeholder_key_detection(self) -> None:
+        self.assertTrue(_is_placeholder_key(""))
+        self.assertTrue(_is_placeholder_key("   "))
+        self.assertTrue(_is_placeholder_key("请填写翻译 API Key"))
+        self.assertTrue(_is_placeholder_key("sk-CHANGEME"))
+        self.assertTrue(_is_placeholder_key("your key here"))
+        self.assertFalse(_is_placeholder_key("sk-abc123xyz"))
 
     def test_rejects_unknown_fields(self) -> None:
         with self.assertRaisesRegex(ValueError, "未知字段"):

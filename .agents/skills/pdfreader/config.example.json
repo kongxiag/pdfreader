@@ -2,12 +2,12 @@
   "translate": {
     "model": "deepseek-chat",
     "base_url": "https://api.deepseek.com/v1",
-    "api_key": "请填写翻译 API Key"
+    "api_key": ""
   },
   "vision": {
     "model": "gpt-4o",
     "base_url": "https://api.openai.com/v1",
-    "api_key": "请填写视觉 API Key"
+    "api_key": ""
   },
   "use_vision": false,
   "allow_insecure_http": false
