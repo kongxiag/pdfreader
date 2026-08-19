@@ -8,12 +8,18 @@
  *
  * 运行依赖：`ctx.subprocess`（DSH 的受管子进程 seam），
  * 因此必须以 argv 形式直接拉起 Python，避免 shell 引号转义问题（Windows 路径含空格/CJK）。
+ *
+ * 自包含说明：本文件不使用 `defineTool`，而是手写 `ToolDefinition` 并直接
+ * `ctx.tools.register(...)`。除 `schemastery`（仅用于 `Config` 的 Standard Schema）外，
+ * 其余 `@deepseek-ai/*` 均为 `import type`（编译后无运行时代码）。这样 esbuild 打包时
+ * 只需内联 `schemastery` 一个极小的依赖，产物 `lib/index.js` 零外部依赖，
+ * 彻底免疫「link: 安装导致 peer 依赖 realpath 解析失败」的问题。
  */
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition, JsonSchemaNode } from '@deepseek-ai/dsh-tools'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import z from '@deepseek-ai/schemastery'
 
@@ -67,57 +73,141 @@ interface RunResult {
   failures: FailureResult[]
 }
 
+interface PdfreaderArgs {
+  pdfs: string[]
+  formats?: string
+  out_dir?: string
+  no_translate?: boolean
+  vision?: boolean
+  vision_only?: boolean
+  no_figures?: boolean
+  chunk_tokens?: number
+  config?: string
+}
+
+/** 手写参数校验（defineTool 的参数校验在去掉后由这里承担）。 */
+function parseArgs(raw: unknown): PdfreaderArgs {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error('pdfreader: 参数必须是对象')
+  }
+  const a = raw as Record<string, unknown>
+
+  const pdfs = a.pdfs
+  if (!Array.isArray(pdfs) || pdfs.length === 0 || pdfs.some((p) => typeof p !== 'string')) {
+    throw new Error('pdfreader: pdfs 必须是非空字符串数组')
+  }
+
+  const str = (v: unknown, label: string): string | undefined => {
+    if (v === undefined) return undefined
+    if (typeof v !== 'string') throw new Error(`pdfreader: ${label} 必须是字符串`)
+    return v
+  }
+  const bool = (v: unknown, label: string): boolean | undefined => {
+    if (v === undefined) return undefined
+    if (typeof v !== 'boolean') throw new Error(`pdfreader: ${label} 必须是布尔值`)
+    return v
+  }
+  const int = (v: unknown, label: string): number | undefined => {
+    if (v === undefined) return undefined
+    if (typeof v !== 'number' || !Number.isInteger(v)) throw new Error(`pdfreader: ${label} 必须是整数`)
+    return v
+  }
+
+  return {
+    pdfs: pdfs as string[],
+    formats: str(a.formats, 'formats'),
+    out_dir: str(a.out_dir, 'out_dir'),
+    no_translate: bool(a.no_translate, 'no_translate'),
+    vision: bool(a.vision, 'vision'),
+    vision_only: bool(a.vision_only, 'vision_only'),
+    no_figures: bool(a.no_figures, 'no_figures'),
+    chunk_tokens: int(a.chunk_tokens, 'chunk_tokens'),
+    config: str(a.config, 'config'),
+  }
+}
+
 const DESCRIPTION =
   '对一篇或多篇外文 PDF 学术文献执行提取、中文翻译、图片提取与解读，返回结构化输出文件清单。' +
   '翻译/视觉的 API Key 已在插件配置中提供，不需要（也不应该）在参数里传 Key。' +
   '适合用户发来 PDF 文献并要求阅读、翻译、分析、总结或批量处理时使用。'
 
-const OUTPUT_SCHEMA = {
+/** 手写参数 JSON Schema（原生 JSON Schema 子集，`required` 为顶层数组）。 */
+const PARAMETERS = {
+  type: 'object',
+  properties: {
+    pdfs: {
+      type: 'array',
+      description: 'PDF 文件路径（绝对路径，或相对插件 cwd 的路径）；支持多个、可含 * ? [ 通配符。',
+      items: { type: 'string' },
+    },
+    formats: {
+      type: 'string',
+      description: '输出格式，逗号分隔：md(中英对照)/zh(纯中文)/html(网页)。默认取插件配置。',
+    },
+    out_dir: { type: 'string', description: '输出目录；默认取插件配置。' },
+    no_translate: { type: 'boolean', description: '只转换提取，不调用翻译 API。' },
+    vision: {
+      type: 'boolean',
+      description:
+        '用外部视觉模型解读图片（OpenAI 兼容，如 gpt-4o/Qwen-VL/GLM-4V）；需 config.json 已配置 vision 段。DeepSeek 文本模型本身不能看图。',
+    },
+    vision_only: { type: 'boolean', description: '只提取并解读图片，不转换/翻译正文。' },
+    no_figures: { type: 'boolean', description: '关闭图片提取。' },
+    chunk_tokens: { type: 'integer', description: '每块最大 token。' },
+    config: { type: 'string', description: 'JSON 配置文件路径；默认取插件配置的 configPath。' },
+  },
+  required: ['pdfs'],
+}
+
+/** 手写输出 JSON Schema（原生 JSON Schema 子集）。 */
+const OUTPUT_SCHEMA: JsonSchemaNode = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    ok: { type: 'boolean', required: true },
+    ok: { type: 'boolean' },
     documents: {
       type: 'array',
-      required: true,
       items: {
         type: 'object',
         additionalProperties: false,
         properties: {
-          pdf: { type: 'string', required: true },
-          type: { type: 'string', required: true },
-          pages: { type: 'integer', required: true },
-          chars: { type: 'integer', required: true },
-          chunks: { type: 'integer', required: true },
-          figures: { type: 'integer', required: true },
-          outputs: { type: 'object', additionalProperties: true, required: true },
+          pdf: { type: 'string' },
+          type: { type: 'string' },
+          pages: { type: 'integer' },
+          chars: { type: 'integer' },
+          chunks: { type: 'integer' },
+          figures: { type: 'integer' },
+          outputs: { type: 'object' },
         },
+        required: ['pdf', 'type', 'pages', 'chars', 'chunks', 'figures', 'outputs'],
       },
     },
     failures: {
       type: 'array',
-      required: true,
       items: {
         type: 'object',
         additionalProperties: false,
         properties: {
-          pdf: { type: 'string', required: true },
-          error: { type: 'string', required: true },
+          pdf: { type: 'string' },
+          error: { type: 'string' },
         },
+        required: ['pdf', 'error'],
       },
     },
   },
-} as const
+  required: ['ok', 'documents', 'failures'],
+}
 
-function renderResult(_args: unknown, value: RunResult) {
+function renderResult(_args: unknown, value: unknown) {
+  const v = value as RunResult
   const lines: string[] = []
-  for (const d of value.documents) {
+  for (const d of v.documents) {
     lines.push(`${d.pdf}: ${d.type} / ${d.pages}页 / ${d.chunks}块 / ${d.figures}图`)
     for (const [kind, p] of Object.entries(d.outputs)) {
       lines.push(`  [${kind}] ${p}`)
     }
   }
-  for (const f of value.failures) {
+  for (const f of v.failures) {
     lines.push(`${f.pdf}: 失败 / ${f.error}`)
   }
   if (lines.length === 0) lines.push('没有可处理的 PDF。')
@@ -127,28 +217,10 @@ function renderResult(_args: unknown, value: RunResult) {
 export function apply(ctx: Context, config: Config): void {
   const cwd = path.resolve(config.cwd)
 
-  ctx.tools.register(defineTool({
+  const definition: ToolDefinition = {
     name: 'pdfreader',
     description: DESCRIPTION,
-    parameters: {
-      pdfs: {
-        type: 'array',
-        required: true,
-        description: 'PDF 文件路径（绝对路径，或相对插件 cwd 的路径）；支持多个、可含 * ? [ 通配符。',
-        items: { type: 'string' },
-      },
-      formats: {
-        type: 'string',
-        description: '输出格式，逗号分隔：md(中英对照)/zh(纯中文)/html(网页)。默认取插件配置。',
-      },
-      out_dir: { type: 'string', description: '输出目录；默认取插件配置。' },
-      no_translate: { type: 'boolean', description: '只转换提取，不调用翻译 API。' },
-      vision: { type: 'boolean', description: '用外部视觉模型解读图片（OpenAI 兼容，如 gpt-4o/Qwen-VL/GLM-4V）；需 config.json 已配置 vision 段。DeepSeek 文本模型本身不能看图。' },
-      vision_only: { type: 'boolean', description: '只提取并解读图片，不转换/翻译正文。' },
-      no_figures: { type: 'boolean', description: '关闭图片提取。' },
-      chunk_tokens: { type: 'integer', description: '每块最大 token。' },
-      config: { type: 'string', description: 'JSON 配置文件路径；默认取插件配置的 configPath。' },
-    },
+    parameters: PARAMETERS,
     output: {
       schema: OUTPUT_SCHEMA,
       render: renderResult,
@@ -156,25 +228,26 @@ export function apply(ctx: Context, config: Config): void {
     timeoutMs: config.timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      const outDirAbs = path.resolve(cwd, args.out_dir ?? config.outDir)
+      const a = parseArgs(args)
+      const outDirAbs = path.resolve(cwd, a.out_dir ?? config.outDir)
       const jsonPath = path.join(outDirAbs, `.pdfreader-result-${randomUUID()}.json`)
 
-      const pdfs = args.pdfs.map((p) => (path.isAbsolute(p) ? p : path.resolve(cwd, p)))
+      const pdfs = a.pdfs.map((p) => (path.isAbsolute(p) ? p : path.resolve(cwd, p)))
 
       const argv: string[] = [
         config.pythonBin,
         '-m', 'pdfreader',
         ...pdfs,
         '--out-dir', outDirAbs,
-        '--formats', args.formats ?? config.defaultFormats,
+        '--formats', a.formats ?? config.defaultFormats,
         '--json-out', jsonPath,
       ]
-      if (args.no_translate) argv.push('--no-translate')
-      if (args.vision) argv.push('--vision')
-      if (args.vision_only) argv.push('--vision-only')
-      if (args.no_figures) argv.push('--no-figures')
-      if (args.chunk_tokens != null) argv.push('--chunk-tokens', String(args.chunk_tokens))
-      const cfgPath = args.config ?? config.configPath
+      if (a.no_translate) argv.push('--no-translate')
+      if (a.vision) argv.push('--vision')
+      if (a.vision_only) argv.push('--vision-only')
+      if (a.no_figures) argv.push('--no-figures')
+      if (a.chunk_tokens != null) argv.push('--chunk-tokens', String(a.chunk_tokens))
+      const cfgPath = a.config ?? config.configPath
       if (cfgPath) argv.push('--config', path.resolve(cwd, cfgPath))
 
       const timeoutSignal = AbortSignal.timeout(config.timeoutMs)
@@ -220,11 +293,19 @@ export function apply(ctx: Context, config: Config): void {
       const detail = (stderr || stdout).trim().slice(-2000)
       throw new Error(`pdfreader 失败（exit ${outcome.exitCode ?? 'signal'}）: ${detail || '无输出'}`)
     },
-    presentCall: (args) => ({
-      card: 'terminal',
-      title: `python -m pdfreader ${args.pdfs.join(' ')}`,
-      description: 'PDF 文献提取/翻译/图片解读',
-      cwd,
-    }),
-  }))
+    presentCall: (args: unknown) => {
+      const raw = (args ?? {}) as { pdfs?: unknown }
+      const pdfs = Array.isArray(raw.pdfs)
+        ? raw.pdfs.filter((p): p is string => typeof p === 'string')
+        : []
+      return {
+        card: 'terminal',
+        title: pdfs.length ? `python -m pdfreader ${pdfs.join(' ')}` : 'python -m pdfreader',
+        description: 'PDF 文献提取/翻译/图片解读',
+        cwd,
+      }
+    },
+  }
+
+  ctx.tools.register(definition)
 }

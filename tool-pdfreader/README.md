@@ -17,12 +17,17 @@
 
 ## 构建
 
+`lib/index.js` 是**自包含 bundle**：用 esbuild 把唯一的运行时依赖 `schemastery` 内联进去，
+产物仅依赖 Node 内置模块（`node:fs` / `node:crypto` / `node:path`），**零 peer 依赖**。
+这彻底规避了 `dsh plugin add <本地目录>` 用 `link:` 符号链接时、Node realpath 导致 peer
+依赖解析失败的问题（`@deepseek-ai/dsh-tools` 等仅作为 `import type` 在编译期使用，不进入产物）。
+
 `lib/` 已预构建，可直接安装。如需重新构建：
 
 ```bash
 cd tool-pdfreader
-npm install          # typescript / @types/node
-npm run build        # tsc -p tsconfig.json → lib/
+npm install          # esbuild / typescript / @types/node / @deepseek-ai/*（仅构建期）
+npm run build        # tsc 类型检查 + 声明生成 + esbuild 打包 → lib/
 ```
 
 ## 安装到 DSH
@@ -33,9 +38,9 @@ npm run build        # tsc -p tsconfig.json → lib/
 dsh plugin --profile web add D:\阅读文献\pdf-reader\tool-pdfreader
 ```
 
-`dsh plugin` 转发给 pnpm，会把本目录作为依赖装进
-`<DSH_HOME>/profiles/<profile>/node_modules`（该目录已 hoisted 全部 `@deepseek-ai/*` 依赖，
-因此本插件的 peer 依赖能直接解析）。
+`dsh plugin` 转发给 pnpm，把本目录作为依赖装进
+`<DSH_HOME>/profiles/<profile>/node_modules`。因为 `lib/index.js` 是自包含 bundle（无 peer 依赖），
+无论 pnpm 用 `link:` 还是 `file:` 安装，都不存在 peer 解析问题。
 
 ### 第 2 步：注册进 `cordis.patch.yml`
 

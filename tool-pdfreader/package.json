@@ -1,6 +1,6 @@
 {
   "name": "dsh-tool-pdfreader",
-  "description": "DSH 工具插件：把 pdf-reader Python CLI 包装为模型可调用的 pdfreader 工具（PDF 文献提取/翻译/图片解读）",
+  "description": "DSH 工具插件：把 pdf-reader Python CLI 包装为模型可调用的 pdfreader 工具（PDF 文献提取/翻译/图片解读），自包含构建、零运行时 peer 依赖",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
@@ -18,16 +18,16 @@
     "lib/index.d.ts"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "npm run typecheck && tsc -p tsconfig.json --emitDeclarationOnly && esbuild src/index.ts --bundle --format=esm --platform=node --outfile=lib/index.js"
   },
-  "peerDependencies": {
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0",
+    "esbuild": "^0.24.0",
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-subprocess": "^0.1.0-rc.6",
     "@deepseek-ai/schemastery": "^3.18.1"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.4.0"
   }
 }
